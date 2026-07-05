@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bulk Resume Ranker — Screen Candidates Against a JD</title>
+<style>
+  :root{
+    --bg: #0a1420; --bg-panel: #0f1e2e; --bg-panel-2: #122335; --border: #1c3145;
+    --teal: #2dd4bf; --teal-dim: #1a8f80; --amber: #f5a623; --red: #f87171; --green: #34d399;
+    --text: #e6edf3; --text-dim: #8ea3b8; --text-faint: #5a7186;
+    --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--text); font-family:var(--sans); min-height:100vh; padding:0 0 60px;}
+  body::before{content:""; position:fixed; inset:0;
+    background-image: radial-gradient(circle at 1px 1px, rgba(45,212,191,0.06) 1px, transparent 0);
+    background-size:28px 28px; pointer-events:none; z-index:0;}
+  .wrap{max-width:960px; margin:0 auto; padding:0 24px; position:relative; z-index:1;}
+  header{padding:40px 0 8px;}
+  .eyebrow{font-family:var(--mono); font-size:12px; color:var(--teal); letter-spacing:2px; text-transform:uppercase; margin-bottom:14px;}
+  h1{font-size:29px; font-weight:700; letter-spacing:-0.5px; margin-bottom:8px;}
+  .subhead{color:var(--text-dim); font-size:14.5px; max-width:640px;}
+
+  .panel{background:var(--bg-panel); border:1px solid var(--border); border-radius:10px; padding:20px 22px; margin-top:24px;}
+  .panel-label{font-family:var(--mono); font-size:12px; color:var(--teal); letter-spacing:1px; text-transform:uppercase; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;}
+  .hint{color:var(--text-faint); font-size:12px; font-family:var(--sans); font-weight:400; text-transform:none; letter-spacing:0;}
+  textarea{
+    width:100%; min-height:130px; resize:vertical;
+    background:var(--bg-panel-2); border:1px solid var(--border); border-radius:8px;
+    color:var(--text); font-family:var(--sans); font-size:13.5px; padding:14px; line-height:1.5;
+  }
+  #resumesInput{min-height:280px; font-family:var(--mono); font-size:12.5px;}
+  textarea::placeholder{color:var(--text-faint);}
+  textarea:focus{outline:none; border-color:var(--teal);}
+
+  .actions{display:flex; gap:12px; margin-top:22px; flex-wrap:wrap;}
+  .btn{font-family:var(--mono); font-size:13.5px; padding:12px 22px; border-radius:6px; border:1px solid var(--border);
+    background:transparent; color:var(--text); cursor:pointer; transition:all .15s;}
+  .btn:hover{border-color:var(--teal); color:var(--teal);}
+  .btn.primary{background:var(--teal); color:#06231f; border-color:var(--teal); font-weight:700;}
+  .btn.primary:hover{background:#5eead4; color:#06231f;}
+
+  .results{margin-top:32px; display:none;}
+  .results.show{display:block;}
+  .results-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:16px; flex-wrap:wrap; gap:8px;}
+  .results-head h2{font-size:16px; font-family:var(--mono); color:var(--text-dim); font-weight:600;}
+  .results-count{font-family:var(--mono); font-size:12px; color:var(--text-faint);}
+
+  .candidate{background:var(--bg-panel); border:1px solid var(--border); border-radius:10px; padding:18px 22px; margin-bottom:12px;}
+  .candidate.rank-1{border-color:var(--teal-dim);}
+  .cand-top{display:flex; align-items:center; gap:14px; flex-wrap:wrap;}
+  .rank-badge{font-family:var(--mono); font-size:13px; font-weight:700; color:var(--teal); background:var(--bg-panel-2);
+    width:32px; height:32px; border-radius:6px; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+  .cand-name{font-weight:700; font-size:15px; flex:1; min-width:120px;}
+  .cand-score{font-family:var(--mono); font-size:18px; font-weight:700;}
+  .bar-track{height:6px; background:var(--bg-panel-2); border-radius:4px; margin-top:12px; overflow:hidden;}
+  .bar-fill{height:100%; border-radius:4px; transition:width .8s ease;}
+  .cand-kw{margin-top:12px; display:flex; flex-wrap:wrap; gap:6px;}
+  .kw{font-family:var(--mono); font-size:11px; padding:3px 9px; border-radius:20px; border:1px solid;}
+  .kw.matched{color:var(--green); border-color:rgba(52,211,153,0.35); background:rgba(52,211,153,0.08);}
+  .kw.missing{color:var(--red); border-color:rgba(248,113,113,0.35); background:rgba(248,113,113,0.08);}
+
+  footer{text-align:center; margin-top:50px; font-family:var(--mono); font-size:12px; color:var(--text-faint);}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Bulk Resume Ranker</div>
+    <h1>Rank candidates against one job description</h1>
+    <p class="subhead">Paste a job description once, paste multiple resumes below it, and get every candidate ranked by keyword match — the first-pass screen most recruiters do manually, done in seconds.</p>
+  </header>
+
+  <div class="panel">
+    <div class="panel-label">Job description</div>
+    <textarea id="jdInput" placeholder="Paste the job description here..."></textarea>
+  </div>
+
+  <div class="panel">
+    <div class="panel-label">
+      Candidate resumes
+      <span class="hint">separate each resume with a line containing only ---</span>
+    </div>
+    <textarea id="resumesInput" placeholder="Candidate A resume text...
+---
+Candidate B resume text...
+---
+Candidate C resume text..."></textarea>
+  </div>
+
+  <div class="actions">
+    <button class="btn primary" id="rankBtn">Rank candidates →</button>
+    <button class="btn" id="clearBtn">Clear</button>
+  </div>
+
+  <div class="results" id="results">
+    <div class="results-head">
+      <h2>Ranked results</h2>
+      <span class="results-count" id="resultsCount"></span>
+    </div>
+    <div id="candidateList"></div>
+  </div>
+
+  <footer>Built by K B Renuka · client-side only, nothing you paste here is uploaded anywhere</footer>
+</div>
+
+<script>
+const STOPWORDS = new Set(("a an the and or but if while with of to in on for from by as is are was were be been being "+
+"this that these those it its at into over under between within across per etc will shall can could would should "+
+"you your yours we our ours they their them he she his her i me my mine not no nor so than then there here which "+
+"who whom whose what when where why how all any both each few more most other some such only own same s t just "+
+"about above after again against all am because been before being below between both down during each few further "+
+"had has have having here how ll m ma o re ve y candidate resume").split(" "));
+
+function tokenize(text){
+  return (text.toLowerCase().match(/[a-z][a-z0-9+.#-]{1,}/g) || [])
+    .filter(w => !STOPWORDS.has(w) && w.length > 1);
+}
+
+function extractKeywords(text, topN){
+  const tokens = tokenize(text);
+  const freq = {};
+  tokens.forEach(w => freq[w] = (freq[w]||0) + 1);
+  return Object.entries(freq).sort((a,b) => b[1]-a[1]).slice(0, topN).map(e => e[0]);
+}
+
+function colorFor(score){
+  if(score >= 75) return '#34d399';
+  if(score >= 45) return '#f5a623';
+  return '#f87171';
+}
+
+function runRank(){
+  const jdText = document.getElementById('jdInput').value.trim();
+  const resumesRaw = document.getElementById('resumesInput').value.trim();
+  if(!jdText || !resumesRaw){
+    alert('Paste both the job description and at least one resume.');
+    return;
+  }
+
+  const jdKeywords = extractKeywords(jdText, 25);
+  const resumeBlocks = resumesRaw.split(/^\s*---\s*$/m).map(r => r.trim()).filter(r => r.length > 0);
+
+  const candidates = resumeBlocks.map((text, i) => {
+    const tokens = new Set(tokenize(text));
+    const matched = jdKeywords.filter(k => tokens.has(k));
+    const missing = jdKeywords.filter(k => !tokens.has(k));
+    const score = jdKeywords.length ? Math.round((matched.length / jdKeywords.length) * 100) : 0;
+    return { name: 'Candidate ' + String.fromCharCode(65 + i), score, matched, missing };
+  });
+
+  candidates.sort((a,b) => b.score - a.score);
+
+  document.getElementById('results').classList.add('show');
+  document.getElementById('resultsCount').textContent = candidates.length + ' candidate' + (candidates.length !== 1 ? 's' : '') + ' ranked';
+
+  const list = document.getElementById('candidateList');
+  list.innerHTML = candidates.map((c, idx) => {
+    const color = colorFor(c.score);
+    const matchedHtml = c.matched.length ? c.matched.map(k => `<span class="kw matched">${k}</span>`).join('') : '';
+    const missingHtml = c.missing.slice(0, 8).map(k => `<span class="kw missing">${k}</span>`).join('');
+    return `
+      <div class="candidate ${idx === 0 ? 'rank-1' : ''}">
+        <div class="cand-top">
+          <div class="rank-badge">#${idx+1}</div>
+          <div class="cand-name">${c.name}</div>
+          <div class="cand-score" style="color:${color}">${c.score}%</div>
+        </div>
+        <div class="bar-track"><div class="bar-fill" style="width:${c.score}%; background:${color};"></div></div>
+        <div class="cand-kw">${matchedHtml}${missingHtml}</div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('results').scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+document.getElementById('rankBtn').addEventListener('click', runRank);
+document.getElementById('clearBtn').addEventListener('click', () => {
+  document.getElementById('jdInput').value = '';
+  document.getElementById('resumesInput').value = '';
+  document.getElementById('results').classList.remove('show');
+});
+</script>
+
+</body>
+</html>
